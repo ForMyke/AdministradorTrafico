@@ -140,7 +140,24 @@ public class AdministradorTrafico {
     }
 
     static class BridgeTrash extends Thread{
+        InputStream gateway;
+        BridgeTrash( InputStream g){
+            gateway = g;
+        }
 
+        @Override
+        public void run() {
+            try{
+                byte [] buffer = new byte[4096];
+                int n;
+                while ((n = gateway.read(buffer) ) != -1){
+
+                }
+
+
+            } catch (IOException e){}
+
+        }
     }
 
 
