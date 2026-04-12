@@ -28,11 +28,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 
 public class AdministradorTrafico {
-    static String host_uno;
-    static int puerto_uno;
-    static String host_dos;
-    static int puerto_dos;
-    static int puerto_local;
+    static String principal_host;
+    static int principal_port;
+    static String second_host;
+    static int second_port;
+    static int local_port;
 
 
 
@@ -41,15 +41,15 @@ public class AdministradorTrafico {
             System.err.println("Uso: sudo java AdministradorTrafico <host-principal> <puerto-principal> <ip-replica> <puerto-replica> <puerto-local>");
             System.exit(1);
         }
-        host_uno = args[0];
-        puerto_uno = Integer.parseInt(args[1]);
-        host_dos = args[2];
-        puerto_dos= Integer.parseInt(args[3]);
-        puerto_local = Integer.parseInt(args[4]);
+        principal_host = args[0];
+        principal_port = Integer.parseInt(args[1]);
+        second_host = args[2];
+        second_port= Integer.parseInt(args[3]);
+        local_port = Integer.parseInt(args[4]);
 
 
         //  Inicio del servidor en el puerto 80
-        ServerSocket server = new ServerSocket(puerto_local);
+        ServerSocket server = new ServerSocket(local_port);
         for (;;){
             Socket cliente = server.accept();
             new WorkerClonador(cliente).start();
@@ -60,17 +60,40 @@ public class AdministradorTrafico {
 
     // Logica para la clonación
     static class WorkerClonador extends Thread  {
+        Socket client, principalServer, secondServer;
+        WorkerClonador(Socket client){
+            this.client = client;
+        }
+
+        @Override
+        public void run() {
+            try{
+                principalServer = new Socket(principal_host, principal_port);
+                secondServer = new Socket(second_host, second_port);
+
+                // Connection
+                new BridgeClone(client.getInputStream(), principalServer.getOutputStream(), secondServer.getOutputStream()).start();
+
+                // Response
+                new BridgeHome(principalServer.getInputStream(), client.getOutputStream()).start();
+                // Trash
+                new BridgeTrash(secondServer.getInputStream()).start();
+
+            } catch ( IOException e){
+            System.err.println("Erro connection" + e.getMessage());
+            }
+
+        }
+    }
+
+    static class BridgeClone extends Thread {
+    }
+
+    static class BridgeHome extends Thread{
 
     }
 
-    static class thread_uno extends Thread {
-    }
-
-    static class thread_dos extends Thread{
-
-    }
-
-    static class thread_tres extends Thread{
+    static class BridgeTrash extends Thread{
 
     }
 
