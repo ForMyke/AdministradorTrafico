@@ -13,13 +13,13 @@ import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
 
 import java.net.ServerSocket;
+import java.net.Socket;
 import java.util.List;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
-import java.net.ServerSocket;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -50,11 +50,15 @@ public class AdministradorTrafico {
 
         //  Inicio del servidor en el puerto 80
         ServerSocket server = new ServerSocket(puerto_local);
+        for (;;){
+            Socket cliente = server.accept();
+            new WorkerClonador(cliente).start();
 
+        }
 
     }
 
-
+    // Logica para la clonación
     static class WorkerClonador extends Thread  {
 
     }
