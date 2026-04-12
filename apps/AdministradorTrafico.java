@@ -118,7 +118,25 @@ public class AdministradorTrafico {
     }
 
     static class BridgeHome extends Thread{
+        InputStream gateway;
+        OutputStream exit;
+        BridgeHome (InputStream g, OutputStream ex){
+            gateway = g;
+            exit = ex;
+        }
 
+        public void run() {
+            try{
+                byte [] buffer = new byte[4096];
+                int n;
+                        while ((n = gateway.read(buffer)) != -1  ){
+                            try{
+                                exit.write(buffer, 0, n );
+                                exit.flush();
+                            } catch (IOException e){}
+                        }
+            } catch ( IOException e){}
+        }
     }
 
     static class BridgeTrash extends Thread{
