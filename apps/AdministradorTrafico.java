@@ -14,7 +14,6 @@ import com.sun.net.httpserver.HttpServer;
 
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.List;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -80,13 +79,42 @@ public class AdministradorTrafico {
                 new BridgeTrash(secondServer.getInputStream()).start();
 
             } catch ( IOException e){
-            System.err.println("Erro connection" + e.getMessage());
+            System.err.println("Error connection" + e.getMessage());
             }
 
         }
     }
 
     static class BridgeClone extends Thread {
+        InputStream gateway;
+        OutputStream exit1, exit2;
+
+        BridgeClone(InputStream g, OutputStream ex1, OutputStream ex2){
+            gateway = g;
+            exit1= ex1;
+            exit2= ex2;
+        }
+
+        public void run() {
+            try {
+                byte [] buffer = new  byte[4096];
+                int n;
+                while (( n = gateway.read(buffer)) != -1 ){
+                    try {
+                      exit1.write(buffer, 0, n);
+                      exit1.flush();
+                    } catch (IOException e){}
+                    try {
+                        exit2.write(buffer,0,n);
+                        exit2.flush();
+                    } catch (IOException e){}
+                }
+
+
+
+
+            } catch (IOException e){}
+        }
     }
 
     static class BridgeHome extends Thread{
