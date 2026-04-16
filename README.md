@@ -28,10 +28,21 @@ sudo java AdministradorTrafico <host-principal> <puerto-principal> <ip-replica> 
 | `puerto-replica` | Replica server port |
 | `puerto-local` | Local port to listen on |
 
+## Build
+```
+javac -cp .:mysql-connector-j-8.0.33.jar AdministradorTrafico.java
+```
+
 ### Example
 
 ```bash
 sudo java AdministradorTrafico 192.168.1.10 3306 192.168.1.11 3306 80
+```
+
+
+### Run with dependencie
+```
+sudo java -cp .:mysql-connector-j-8.0.33.jar AdministradorTrafico localhost 8080 10.1.0.5 8080 80
 ```
 
 ## How it works
