@@ -1,154 +1,198 @@
-/*
-AdministradorTrafico.java
-Author: Miguel Gomez
-Data Created: 11 April 2026
-Description
-Manage the traffic and reply data in the both data base of machines
-Usage
-Manage traffic
- */
-
-
-import java.net.ServerSocket;
-import java.net.Socket;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.net.*;
+import java.io.*;
+import java.sql.*;
+import java.util.regex.*;
 
 public class AdministradorTrafico {
-    static String principal_host;
-    static int principal_port;
-    static String second_host;
-    static int second_port;
-    static int local_port;
 
+    static String host1, host2;
+    static int port1, port2, localPort;
 
+    static final String DB_URL  = "jdbc:mysql://10.1.0.5:3306/servicio_web";
+    static final String DB_USER = "miguel";
+    static final String DB_PASS = "miguel";
 
-    public static void main(String[] args) throws  Exception{
-        if (args.length != 5){
-            System.err.println("Uso: sudo java AdministradorTrafico <host-principal> <puerto-principal> <ip-replica> <puerto-replica> <puerto-local>");
+    public static void main(String[] args) throws Exception {
+        if (args.length != 5) {
+            System.err.println("Uso: sudo java AdministradorTrafico <host1> <port1> <host2> <port2> <localPort>");
             System.exit(1);
         }
-        principal_host = args[0];
-        principal_port = Integer.parseInt(args[1]);
-        second_host = args[2];
-        second_port= Integer.parseInt(args[3]);
-        local_port = Integer.parseInt(args[4]);
+        host1     = args[0];
+        port1     = Integer.parseInt(args[1]);
+        host2     = args[2];
+        port2     = Integer.parseInt(args[3]);
+        localPort = Integer.parseInt(args[4]);
 
-
-        //  Inicio del servidor en el puerto 80
-        ServerSocket server = new ServerSocket(local_port);
-        for (;;){
+        ServerSocket server = new ServerSocket(localPort);
+        System.out.println("AdministradorTrafico escuchando en puerto " + localPort);
+        for (;;) {
             Socket cliente = server.accept();
-            new WorkerClonador(cliente).start();
-
+            System.out.println("Cliente: " + cliente.getInetAddress());
+            new Worker(cliente).start();
         }
-
     }
 
-    // Logica para la clonación
-    static class WorkerClonador extends Thread  {
-        Socket client, principalServer, secondServer;
-        WorkerClonador(Socket client){
-            this.client = client;
-        }
+    static class Worker extends Thread {
+        Socket cliente;
+        Worker(Socket c) { this.cliente = c; }
 
-        @Override
         public void run() {
-            try{
-                principalServer = new Socket(principal_host, principal_port);
-                secondServer = new Socket(second_host, second_port);
+            try (Socket cliente = this.cliente) {
+                cliente.setSoTimeout(30000);
+                InputStream  clientIn  = cliente.getInputStream();
+                OutputStream clientOut = cliente.getOutputStream();
 
-                // Connection
-                new BridgeClone(client.getInputStream(), principalServer.getOutputStream(), secondServer.getOutputStream()).start();
+                Socket vm1 = new Socket(host1, port1);
+                Socket vm2 = new Socket(host2, port2);
+                vm1.setSoTimeout(30000);
+                vm2.setSoTimeout(30000);
 
-                // Response
-                new BridgeHome(principalServer.getInputStream(), client.getOutputStream()).start();
-                // Trash
-                new BridgeTrash(secondServer.getInputStream()).start();
+                new Drainer(vm2.getInputStream()).start();
 
-            } catch ( IOException e){
-            System.err.println("Error connection" + e.getMessage());
+                new Forwarder(vm1.getInputStream(), clientOut).start();
+
+                while (true) {
+                    ByteArrayOutputStream headerBuf = new ByteArrayOutputStream();
+                    if (!readHeaders(clientIn, headerBuf)) break;
+
+                    byte[] headerBytes = headerBuf.toByteArray();
+                    String headers     = new String(headerBytes, "ISO-8859-1");
+
+                    int contentLength = 0;
+                    Matcher clm = Pattern.compile("Content-Length:\\s*(\\d+)", Pattern.CASE_INSENSITIVE).matcher(headers);
+                    if (clm.find()) contentLength = Integer.parseInt(clm.group(1));
+
+                    byte[] body = new byte[contentLength];
+                    if (contentLength > 0) readExact(clientIn, body);
+
+                    String bodyStr = new String(body, "ISO-8859-1");
+                    System.out.println(">> " + headers.split("\r\n")[0]);
+
+                    byte[] headersForVM2 = headerBytes;
+                    byte[] bodyForVM2    = body;
+
+                    if (headers.contains("token=") || bodyStr.contains("token=")) {
+                        String fullReq  = headers + bodyStr;
+                        String idUsuario = extract(fullReq, "[?&]id_usuario=(\\d+)");
+                        String replicaToken = getTokenFromReplica(idUsuario);
+                        if (replicaToken != null) {
+                            String modHeaders = headers.replaceAll("token=[^& \\r\\n]+", "token=" + replicaToken);
+                            String modBody    = bodyStr.replaceAll("token=[^& \\r\\n\"]+", "token=" + replicaToken);
+                            headersForVM2 = modHeaders.getBytes("ISO-8859-1");
+                            bodyForVM2    = modBody.getBytes("ISO-8859-1");
+                            if (contentLength > 0) {
+                                String fixedHeaders = new String(headersForVM2, "ISO-8859-1")
+                                        .replaceAll("Content-Length:\\s*\\d+", "Content-Length: " + bodyForVM2.length);
+                                headersForVM2 = fixedHeaders.getBytes("ISO-8859-1");
+                            }
+                            System.out.println("Token reemplazado id=" + idUsuario + " -> " + replicaToken);
+                        }
+                    }
+
+                    vm1.getOutputStream().write(headerBytes);
+                    if (body.length > 0) vm1.getOutputStream().write(body);
+                    vm1.getOutputStream().flush();
+
+                    vm2.getOutputStream().write(headersForVM2);
+                    if (bodyForVM2.length > 0) vm2.getOutputStream().write(bodyForVM2);
+                    vm2.getOutputStream().flush();
+
+                    String email = extract(headers + bodyStr, "\"email\"\\s*:\\s*\"([^\"]+)\"");
+                    if (email == null) email = extract(headers, "[?&]email=([^& \\r\\n]+)");
+                    if (email != null) {
+                        Thread.sleep(300);
+                        syncTokenByEmail(email);
+                    }
+                }
+
+                vm1.close();
+                vm2.close();
+            } catch (Exception e) {
             }
-
         }
     }
 
-    static class BridgeClone extends Thread {
-        InputStream gateway;
-        OutputStream exit1, exit2;
+    static boolean readHeaders(InputStream in, ByteArrayOutputStream out) throws IOException {
+        int[] last4 = {0, 0, 0, 0};
+        int b;
+        try {
+            while ((b = in.read()) != -1) {
+                out.write(b);
+                last4[0] = last4[1]; last4[1] = last4[2]; last4[2] = last4[3]; last4[3] = b;
+                if (last4[0]=='\r' && last4[1]=='\n' && last4[2]=='\r' && last4[3]=='\n') return true;
+            }
+        } catch (SocketTimeoutException e) {}
+        return false;
+    }
 
-        BridgeClone(InputStream g, OutputStream ex1, OutputStream ex2){
-            gateway = g;
-            exit1= ex1;
-            exit2= ex2;
+    static void readExact(InputStream in, byte[] buf) throws IOException {
+        int offset = 0;
+        while (offset < buf.length) {
+            int n = in.read(buf, offset, buf.length - offset);
+            if (n == -1) break;
+            offset += n;
         }
+    }
 
+    static class Forwarder extends Thread {
+        InputStream in; OutputStream out;
+        Forwarder(InputStream in, OutputStream out) { this.in = in; this.out = out; setDaemon(true); }
         public void run() {
             try {
-                byte [] buffer = new  byte[4096];
-                int n;
-                while (( n = gateway.read(buffer)) != -1 ){
-                    try {
-                      exit1.write(buffer, 0, n);
-                      exit1.flush();
-                    } catch (IOException e){}
-                    try {
-                        exit2.write(buffer,0,n);
-                        exit2.flush();
-                    } catch (IOException e){}
-                }
-
-
-
-
-            } catch (IOException e){}
+                byte[] buf = new byte[65536]; int n;
+                while ((n = in.read(buf)) != -1) { out.write(buf, 0, n); out.flush(); }
+            } catch (IOException e) {}
         }
     }
 
-    static class BridgeHome extends Thread{
-        InputStream gateway;
-        OutputStream exit;
-        BridgeHome (InputStream g, OutputStream ex){
-            gateway = g;
-            exit = ex;
-        }
-
+    static class Drainer extends Thread {
+        InputStream in;
+        Drainer(InputStream in) { this.in = in; setDaemon(true); }
         public void run() {
-            try{
-                byte [] buffer = new byte[4096];
-                int n;
-                        while ((n = gateway.read(buffer)) != -1  ){
-                            try{
-                                exit.write(buffer, 0, n );
-                                exit.flush();
-                            } catch (IOException e){}
-                        }
-            } catch ( IOException e){}
-        }
-    }
-
-    static class BridgeTrash extends Thread{
-        InputStream gateway;
-        BridgeTrash( InputStream g){
-            gateway = g;
-        }
-
-        @Override
-        public void run() {
-            try{
-                byte [] buffer = new byte[4096];
-                int n;
-                while ((n = gateway.read(buffer) ) != -1){
-
-                }
-
-
-            } catch (IOException e){}
-
+            try { byte[] buf = new byte[65536]; while (in.read(buf) != -1) {} } catch (IOException e) {}
         }
     }
 
 
+    static String getTokenFromReplica(String idUsuario) {
+        if (idUsuario == null) return null;
+        try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS)) {
+            PreparedStatement ps = c.prepareStatement("SELECT token FROM usuarios WHERE id_usuario = ?");
+            ps.setInt(1, Integer.parseInt(idUsuario));
+            ResultSet rs = ps.executeQuery();
+            return rs.next() ? rs.getString("token") : null;
+        } catch (Exception e) {
+            System.err.println("getToken error: " + e.getMessage());
+            return null;
+        }
     }
 
+    static void syncTokenByEmail(String email) {
+        try {
+            String tokenVM1 = null;
+            try (Connection c = DriverManager.getConnection(
+                    "jdbc:mysql://localhost:3306/servicio_web", DB_USER, DB_PASS)) {
+                PreparedStatement ps = c.prepareStatement("SELECT token FROM usuarios WHERE email = ?");
+                ps.setString(1, email);
+                ResultSet rs = ps.executeQuery();
+                if (rs.next()) tokenVM1 = rs.getString("token");
+            }
+            if (tokenVM1 == null) return;
+
+            try (Connection c = DriverManager.getConnection(DB_URL, DB_USER, DB_PASS)) {
+                PreparedStatement ps = c.prepareStatement("UPDATE usuarios SET token = ? WHERE email = ?");
+                ps.setString(1, tokenVM1);
+                ps.setString(2, email);
+                int rows = ps.executeUpdate();
+                System.out.println("Token sincronizado (" + rows + " fila/s) email=" + email + " token=" + tokenVM1);
+            }
+        } catch (Exception e) {
+            System.err.println("syncToken error: " + e.getMessage());
+        }
+    }
+
+    static String extract(String text, String regex) {
+        Matcher m = Pattern.compile(regex).matcher(text);
+        return m.find() ? m.group(1) : null;
+    }
+}

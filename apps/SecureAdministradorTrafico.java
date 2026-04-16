@@ -1,11 +1,11 @@
 /*
-AdministradorTrafico.java
+SecureAdministradorTrafico.java
 Author: Miguel Gomez
-Data Created: 11 April 2026
+Data Created: 12 April 2026
 Description
 Manage the traffic and reply data in the both data base of machines
 Usage
-Manage traffic
+Manage traffic transmitted via https
  */
 
 
