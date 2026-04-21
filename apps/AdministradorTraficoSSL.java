@@ -1,9 +1,20 @@
-import java.net.*;
+
+import javax.net.ssl.KeyManagerFactory;
+import javax.net.ssl.SSLServerSocket;
 import java.io.*;
-import java.sql.*;
-import java.util.regex.*;
-import javax.net.ssl.*;
-import java.security.*;
+import java.net.Socket;
+import java.lang.Exception;
+import java.security.KeyStore;
+import java.util.regex.Matcher;
+import java.sql.PreparedStatement;
+import java.sql.DriverManager;
+import java.net.SocketTimeoutException;
+import java.util.regex.Pattern;
+import java.sql.ResultSet;
+import java.sql.Connection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLServerSocketFactory;
+
 
 public class AdministradorTraficoSSL {
 
