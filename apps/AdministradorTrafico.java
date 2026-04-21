@@ -1,7 +1,19 @@
-import java.net.*;
-import java.io.*;
-import java.sql.*;
-import java.util.regex.*;
+
+
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.lang.Exception;
+import java.io.ByteArrayOutputStream;
+import java.util.regex.Matcher;
+import java.io.IOException;
+import java.sql.PreparedStatement;
+import java.sql.DriverManager;
+import java.net.SocketTimeoutException;
+import java.util.regex.Pattern;
+import java.sql.ResultSet;
+import java.sql.Connection;
 
 public class AdministradorTrafico {
 
